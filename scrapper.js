@@ -25,12 +25,10 @@ const scrapCompanyGeneralDataFromPage = async (url, pageNumber) => {
         await page.waitForSelector('.m-exhibitors-list__items', { timeout: 20000 });
         const content = await page.content()
 
-        // Get all exhibitor links first
         const exhibitorLinks = await page.$$('.m-exhibitors-list__items__item__name__link');
         const exhibitorsData = [];
 
         for (const [index, link] of exhibitorLinks.entries()) {
-            // Extract basic exhibitor data
             const exhibitorData = await page.evaluate((el) => ({
                 name: el.innerText.trim(),
                 modalurl: el.getAttribute('href'),
@@ -39,16 +37,14 @@ const scrapCompanyGeneralDataFromPage = async (url, pageNumber) => {
                 country: el.closest('.m-exhibitors-list__items__item').querySelector('.m-exhibitors-list__items__item__location')?.innerText.trim(),
             }), link);
 
-            // Click the link to open the modal
             await Promise.all([
-                page.waitForSelector('.mfp-content', { timeout: 10000 }), // Wait for modal to appear
+                page.waitForSelector('.mfp-content', { timeout: 10000 }), 
                 link.click(),
             ]);
 
             await delay(2000)
 
 
-            // Extract modal data
             const { htmlContent, brandData } = await page.evaluate(() => {
                 const modalContent = document.querySelector('.mfp-content');
                 console.log(JSON.stringify(Array.from(modalContent.querySelectorAll('.m-exhibitor-entry__item__header__infos__categories__item')).map(el => el.innerHTML)));
@@ -67,25 +63,15 @@ const scrapCompanyGeneralDataFromPage = async (url, pageNumber) => {
                         // brands: modalContent.querySelectorAll('.m-libraries-products-list__items__item__header__title a').length ? Array.from(modalContent.querySelectorAll('.m-libraries-products-list__items__item__header__title a')).map(el => el.textContent.trim()) : null
                     }
                 }
-                return {
-                    description: modalContent.querySelector('.m-exhibitor-entry__item__body__description')?.innerText.trim(),
-                    website: modalContent.querySelector('.m-exhibitor-entry__item__body__contacts__additional__button__website a')?.href,
-                    //     address: modalContent.querySelector('.m-exhibitor-entry__item__body__contacts__address')?.innerText.trim(),
-                    //     socialMedia: Array.from(modalContent.querySelectorAll('.m-exhibitor-entry__item__body__contacts__additional__social__item a')).map((a) => a.href),
-                    categories: modalContent.querySelectorAll('.m-exhibitor-entry__item__header__infos__categories__item').length ? JSON.stringify(Array.from(modalContent.querySelectorAll('.m-exhibitor-entry__item__header__infos__categories__item')).map(el => el.innerHTML)) : null,
-                    products: modalContent.querySelectorAll('.m-libraries-products-list__items__item__header__title__link').length ? JSON.stringify(Array.from(modalContent.querySelectorAll('.m-exhibitor-entry__item__header__infos__categories__item')).map(el => el.innerHTML)) : null,
-                    brands: modalContent.querySelectorAll('.m-libraries-products-list__items__item__header__title').length ? JSON.stringify(Array.from(modalContent.querySelectorAll('.m-libraries-products-list__items__item__header__title')).map(el => el.innerHTML)) : null
-                };
+               
             });
             console.log(brandData);
-            // Combine exhibitor and modal data
             exhibitorsData.push({
                 ...exhibitorData,
                 modalData: JSON.stringify(htmlContent),
                 pageNumber,
                 brandData
             });
-            // Close the modal
             await page.waitForSelector('.mfp-close', { timeout: 10000 })
             // await page.click('.mfp-close');
             const closeButton = await page.$('.mfp-close');
