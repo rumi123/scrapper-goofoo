@@ -6,7 +6,7 @@ import fs from "fs"
 const pageLimit = 150;
 const browser = await puppeteer.launch();
 
-let i = 1
+let i = 151
 let attempts = 0
 let skippedPages = []
 
@@ -18,11 +18,11 @@ const pageNumbers = await PageData.findAll({
 const pageNumberArray = pageNumbers.map(row => row.pageNumber);
 
 const scrapCompanyGeneralDataFromPage = async (url, pageNumber) => {
+    console.log(`started page ${pageNumber}`);
+    const page = await browser.newPage();
     try {
-        console.log(`started page ${pageNumber}`);
-        const page = await browser.newPage();
-        await page.goto(url);
-        await page.waitForSelector('.m-exhibitors-list__items', { timeout: 20000 });
+        await page.goto(url,{timeout:60000});
+        await page.waitForSelector('.m-exhibitors-list__items', { timeout: 60000 });
         const content = await page.content()
 
         const exhibitorLinks = await page.$$('.m-exhibitors-list__items__item__name__link');
@@ -38,16 +38,16 @@ const scrapCompanyGeneralDataFromPage = async (url, pageNumber) => {
             }), link);
 
             await Promise.all([
-                page.waitForSelector('.mfp-content', { timeout: 10000 }), 
+                page.waitForSelector('.mfp-content', { timeout: 60000 }), 
                 link.click(),
             ]);
 
-            await delay(2000)
+            await delay(3500)
 
 
             const { htmlContent, brandData } = await page.evaluate(() => {
                 const modalContent = document.querySelector('.mfp-content');
-                console.log(JSON.stringify(Array.from(modalContent.querySelectorAll('.m-exhibitor-entry__item__header__infos__categories__item')).map(el => el.innerHTML)));
+                // console.log(JSON.stringify(Array.from(modalContent.querySelectorAll('.m-exhibitor-entry__item__header__infos__categories__item')).map(el => el.innerHTML)));
                 return {
                     htmlContent: modalContent.outerHTML, brandData: {
                         description: modalContent.querySelector('.m-exhibitor-entry__item__body__description')?.innerText.trim(),
@@ -65,14 +65,14 @@ const scrapCompanyGeneralDataFromPage = async (url, pageNumber) => {
                 }
                
             });
-            console.log(brandData);
+            // console.log(brandData);
             exhibitorsData.push({
                 ...exhibitorData,
                 modalData: JSON.stringify(htmlContent),
                 pageNumber,
                 brandData
             });
-            await page.waitForSelector('.mfp-close', { timeout: 10000 })
+            await page.waitForSelector('.mfp-close', { timeout: 60000 })
             // await page.click('.mfp-close');
             const closeButton = await page.$('.mfp-close');
             if (closeButton) {
@@ -86,14 +86,15 @@ const scrapCompanyGeneralDataFromPage = async (url, pageNumber) => {
         await page.close();
         return { exhibitorsData, pageData: { pageNumber, content } };
     } catch (error) {
+        await page.close()
         throw error
     }
 };
 
-export const runScrapperForCompanyGeneralDetails = async () => {
+export const runScrapperForCompanyGeneralDetails = async (missingPages) => {
 
     const highestPageNumber = await PageData.max('pageNumber')
-    i = highestPageNumber + 1
+    // i = highestPageNumber + 1
 
     while (i <= pageLimit) {
         try {
@@ -130,7 +131,7 @@ export const runScrapperForCompanyGeneralDetails = async () => {
         }
     }
 
-    if (i === 150) {
+    if (i === 151) {
         // const pageNumbers = await PageData.findAll({
         //     attributes: ['pageNumber'],
         //     raw: true
@@ -138,39 +139,42 @@ export const runScrapperForCompanyGeneralDetails = async () => {
 
         // const pageNumberArray = pageNumbers.map(row => row.pageNumber);
         const pageSet = new Set(pageNumberArray);
-        const missingPages = Array.from({ length: pageLimit }, (_, i) => i + 1)
-            .filter(num => !pageSet.has(num));
+        // const missingPages = Array.from({ length: 78 }, (_, i) => i + 1)
+        //     .filter(num => !pageSet.has(num));
         console.log(missingPages);
-        while (missingPages.length === 0) {
+        let pos = missingPages.length - 1
+        while (missingPages.length > 0) {
+            const pageNum = missingPages[pos]
             try {
-                if(pageNumberArray.includes(i)){
-                    i++
+                if(pageNumberArray.includes(pageNum)){
+                    pos--
+                    missingPages.pop()
                     continue
                 }
-                const url = `https://www.gulfood.com/exhibitor-list?&sortby=title%20asc%2Ctitle%20asc&page=${i}&searchgroup=149E2824-exhibitors`;
-                const { exhibitorsData, pageData } = await scrapCompanyGeneralDataFromPage(url, i);
+                const url = `https://www.gulfood.com/exhibitor-list?&sortby=title%20asc%2Ctitle%20asc&page=${pageNum}&searchgroup=149E2824-exhibitors`;
+                const { exhibitorsData, pageData } = await scrapCompanyGeneralDataFromPage(url, pageNum);
 
                 if (exhibitorsData?.length) {
                     await CompanyGeneralData.bulkCreate(exhibitorsData);
                     await PageData.create(pageData);
                 }
 
-                console.log(`Page ${i} completed: ${exhibitorsData?.length || 0} exhibitors`);
+                console.log(`Page ${pageNum} completed: ${exhibitorsData?.length || 0} exhibitors`);
                 await delay(3000);
-                i++;
+                pos--;
                 attempts = 0
             } catch (error) {
-                console.error(`Error on page ${i}:`, error);
+                console.error(`Error on page ${pageNum}:`, error);
                 if (attempts === 2) {
                     skippedPages.push(i)
-                    console.log(`attempted page ${i} 2 times skipping to page ${i + 1}`)
-                    i++
+                    console.log(`attempted page ${pageNum} 2 times skipping to page ${missingPages[pos - 1]}`)
+                    pos--
                     attempts = 0
                 } else {
-                    await CompanyGeneralData.destroy({ where: { pageNumber: i } });
-                    await PageData.destroy({ where: { pageNumber: i } });
+                    await CompanyGeneralData.destroy({ where: { pageNumber: pageNum } });
+                    await PageData.destroy({ where: { pageNumber: pageNum } });
 
-                    console.log(`Retrying page ${i} after 10 seconds...`);
+                    console.log(`Retrying page ${pageNum} after 10 seconds...`);
                 }
                 attempts++
                 await delay(10000);
